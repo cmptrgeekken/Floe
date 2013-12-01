@@ -245,6 +245,12 @@ namespace Floe.UI
 			{
 				line = block.Text.Length - 1;
 			}
+
+            if (line < 0)
+            {
+                return -1;
+            }
+
 			int idx = 0;
 			if (line > 0 || p.X >= block.TextX)
 			{

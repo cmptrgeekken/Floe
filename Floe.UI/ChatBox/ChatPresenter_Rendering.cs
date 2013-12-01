@@ -1,385 +1,443 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Media.TextFormatting;
 using System.Windows.Threading;
 
 namespace Floe.UI
 {
-	public partial class ChatPresenter : ChatBoxBase, IScrollInfo
-	{
-		private const double SeparatorPadding = 6.0;
-		private const int TextProcessingBatchSize = 50;
-		private const float MinNickBrightness = .2f;
-		private const float NickBrightnessBand = .2f;
+    public partial class ChatPresenter : ChatBoxBase, IScrollInfo
+    {
+        private const double SeparatorPadding = 6.0;
+        private const int TextProcessingBatchSize = 50;
+        private const float MinNickBrightness = .2f;
+        private const float NickBrightnessBand = .2f;
 
-		private class Block
-		{
-			public ChatLine Source { get; set; }
-			public Brush Foreground { get; set; }
+        private class Block
+        {
+            public ChatLine Source { get; set; }
+            public Brush Foreground { get; set; }
 
-			public string TimeString { get; set; }
-			public string NickString { get; set; }
+            public string TimeString { get; set; }
+            public string NickString { get; set; }
 
-			public TextLine Time { get; set; }
-			public TextLine Nick { get; set; }
-			public TextLine[] Text { get; set; }
+            public TextLine Time { get; set; }
+            public TextLine Nick { get; set; }
+            public TextLine[] Text { get; set; }
+            public ImageSource Image { get; set; }
+            public double ImageWidth { get; set; }
+            public double ImageHeight { get; set; }
 
-			public int CharStart { get; set; }
-			public int CharEnd { get; set; }
-			public double Y { get; set; }
-			public double NickX { get; set; }
-			public double TextX { get; set; }
-			public double Height { get; set; }
-		}
+            public int CharStart { get; set; }
+            public int CharEnd { get; set; }
+            public double Y { get; set; }
+            public double NickX { get; set; }
+            public double TextX { get; set; }
+            public double Height { get; set; }
+        }
 
-		private LinkedList<Block> _blocks = new LinkedList<Block>();
-		private double _lineHeight;
-		private LinkedListNode<Block> _bottomBlock, _curBlock;
-		private int _curLine;
-		private bool _isProcessingText;
+        private LinkedList<Block> _blocks = new LinkedList<Block>();
+        private double _lineHeight;
+        private LinkedListNode<Block> _bottomBlock, _curBlock;
+        private int _curLine;
+        private bool _isProcessingText;
 
-		private Typeface Typeface
-		{
-			get
-			{
-				return new Typeface(this.FontFamily, this.FontStyle, this.FontWeight, this.FontStretch);
-			}
-		}
+        private Typeface Typeface
+        {
+            get
+            {
+                return new Typeface(this.FontFamily, this.FontStyle, this.FontWeight, this.FontStretch);
+            }
+        }
 
-		private Color BackgroundColor
-		{
-			get
-			{
-				if (this.Background is SolidColorBrush)
-				{
-					return ((SolidColorBrush)this.Background).Color;
-				}
-				return Colors.Black;
-			}
-		}
+        private Color BackgroundColor
+        {
+            get
+            {
+                if (this.Background is SolidColorBrush)
+                {
+                    return ((SolidColorBrush)this.Background).Color;
+                }
+                return Colors.Black;
+            }
+        }
 
-		private string FormatNick(string nick)
-		{
-			if (!this.UseTabularView)
-			{
-				if (nick == null)
-				{
-					nick = "* ";
-				}
-				else
-				{
-					nick = string.Format("<{0}> ", nick);
-				}
-			}
-			return nick ?? "*";
-		}
+        private string FormatNick(string nick)
+        {
+            if (!this.UseTabularView)
+            {
+                if (nick == null)
+                {
+                    nick = "* ";
+                }
+                else
+                {
+                    nick = string.Format("<{0}> ", nick);
+                }
+            }
+            return nick ?? "*";
+        }
 
-		private string FormatTime(DateTime time)
-		{
-			return this.ShowTimestamp ? time.ToString(this.TimestampFormat + " ") : "";
-		}
+        private string FormatTime(DateTime time)
+        {
+            return this.ShowTimestamp ? time.ToString(this.TimestampFormat + " ") : "";
+        }
 
-		private Brush GetNickColor(int hashCode)
-		{
-			var rand = new Random(hashCode * (this.NicknameColorSeed + 1));
-			float bgv = (float)Math.Max(Math.Max(this.BackgroundColor.R, this.BackgroundColor.G), this.BackgroundColor.B) / 255f;
+        private Brush GetNickColor(int hashCode)
+        {
+            var rand = new Random(hashCode * (this.NicknameColorSeed + 1));
+            float bgv = (float)Math.Max(Math.Max(this.BackgroundColor.R, this.BackgroundColor.G), this.BackgroundColor.B) / 255f;
 
-			float v = (float)rand.NextDouble() * NickBrightnessBand + (bgv < 0.5f ? (1f - NickBrightnessBand) : MinNickBrightness);
-			float h = 360f * (float)rand.NextDouble();
-			float s = .4f + (.6f * (float)rand.NextDouble());
-			return new SolidColorBrush(new HsvColor(1f, h, s, v).ToColor());
-		}
+            float v = (float)rand.NextDouble() * NickBrightnessBand + (bgv < 0.5f ? (1f - NickBrightnessBand) : MinNickBrightness);
+            float h = 360f * (float)rand.NextDouble();
+            float s = .4f + (.6f * (float)rand.NextDouble());
+            return new SolidColorBrush(new HsvColor(1f, h, s, v).ToColor());
+        }
 
-		public void AppendBulkLines(IEnumerable<ChatLine> lines)
-		{
-			foreach (var line in lines)
-			{
-				var b = new Block();
-				b.Source = line;
-				b.TimeString = this.FormatTime(b.Source.Time);
-				b.NickString = this.FormatNick(b.Source.Nick);
+        public void AppendBulkLines(IEnumerable<ChatLine> lines)
+        {
+            foreach (var line in lines)
+            {
+                var b = new Block();
+                b.Source = line;
+                b.TimeString = this.FormatTime(b.Source.Time);
+                b.NickString = this.FormatNick(b.Source.Nick);
 
-				var offset = _blocks.Last != null ? _blocks.Last.Value.CharEnd : 0;
-				b.CharStart = offset;
-				offset += b.TimeString.Length + b.NickString.Length + b.Source.Text.Length;
-				b.CharEnd = offset;
+                var offset = _blocks.Last != null ? _blocks.Last.Value.CharEnd : 0;
+                b.CharStart = offset;
+                offset += b.TimeString.Length + b.NickString.Length + b.Source.Text.Length;
+                b.CharEnd = offset;
 
-				_blocks.AddLast(b);
-			}
-			this.StartProcessingText();
-		}
+                _blocks.AddLast(b);
+            }
+            this.StartProcessingText();
+        }
 
-		public void AppendLine(ChatLine line)
-		{
-			var b = new Block();
-			b.Source = line;
+        public void AppendLine(ChatLine line)
+        {
+            var b = new Block();
+            b.Source = line;
 
-			b.TimeString = this.FormatTime(b.Source.Time);
-			b.NickString = this.FormatNick(b.Source.Nick);
+            b.TimeString = this.FormatTime(b.Source.Time);
+            b.NickString = this.FormatNick(b.Source.Nick);
 
-			var offset = _blocks.Last != null ? _blocks.Last.Value.CharEnd : 0;
-			b.CharStart = offset;
-			offset += b.TimeString.Length + b.NickString.Length + b.Source.Text.Length;
-			b.CharEnd = offset;
+            var offset = _blocks.Last != null ? _blocks.Last.Value.CharEnd : 0;
+            b.CharStart = offset;
+            offset += b.TimeString.Length + b.NickString.Length + b.Source.Text.Length;
+            b.CharEnd = offset;
 
-			_blocks.AddLast(b);
-			this.FormatOne(b, this.AutoSizeColumn);
-			_bufferLines += b.Text.Length;
+            _blocks.AddLast(b);
+            this.FormatOne(b, this.AutoSizeColumn);
+            _bufferLines += b.Text.Length;
 
-			while (_blocks.Count > this.BufferLines)
-			{
-				if (_blocks.First.Value.Text != null)
-				{
-					_bufferLines -= _blocks.First.Value.Text.Length;
-				}
-				if (_blocks.First == _curSearchBlock)
-				{
-					this.ClearSearch();
-				}
-				_blocks.RemoveFirst();
-			}
+            if (b.Image != null)
+            {
+                _bufferLines += (int)(b.ImageHeight / _lineHeight);
+            }
 
-			this.InvalidateScrollInfo();
-			if (!_isAutoScrolling || _isSelecting)
-			{
-				_scrollPos += b.Text.Length;
-			}
-			this.InvalidateVisual();
-		}
+            while (_blocks.Count > this.BufferLines)
+            {
+                if (_blocks.First.Value.Text != null)
+                {
+                    _bufferLines -= _blocks.First.Value.Text.Length;
+                }
+                if (_blocks.First == _curSearchBlock)
+                {
+                    this.ClearSearch();
+                }
+                _blocks.RemoveFirst();
+            }
 
-		private void FormatOne(Block b, bool autoSize)
-		{
-			b.Foreground = this.Palette[b.Source.ColorKey];
+            this.InvalidateScrollInfo();
+            if (!_isAutoScrolling || _isSelecting)
+            {
+                _scrollPos += b.Text.Length;
+            }
+            this.InvalidateVisual();
+        }
 
-			var formatter = new ChatFormatter(this.Typeface, this.FontSize, this.Foreground, this.Palette);
-			b.Time = formatter.Format(b.TimeString, null, this.ViewportWidth, b.Foreground, this.Background,
-				TextWrapping.NoWrap).FirstOrDefault();
-			b.NickX = b.Time != null ? b.Time.WidthIncludingTrailingWhitespace : 0.0;
+        private void FormatOne(Block b, bool autoSize)
+        {
+            b.Foreground = this.Palette[b.Source.ColorKey];
 
-			var nickBrush = b.Foreground;
-			if (this.ColorizeNicknames && b.Source.NickHashCode != 0)
-			{
-				nickBrush = this.GetNickColor(b.Source.NickHashCode);
-			}
-			b.Nick = formatter.Format(b.NickString, null, this.ViewportWidth - b.NickX, nickBrush, this.Background,
-				TextWrapping.NoWrap).First();
-			b.TextX = b.NickX + b.Nick.WidthIncludingTrailingWhitespace;
+            var formatter = new ChatFormatter(this.Typeface, this.FontSize, this.Foreground, this.Palette);
+            b.Time = formatter.Format(b.TimeString, null, this.ViewportWidth, b.Foreground, this.Background,
+                TextWrapping.NoWrap).FirstOrDefault();
+            b.NickX = b.Time != null ? b.Time.WidthIncludingTrailingWhitespace : 0.0;
 
-			if (autoSize && b.TextX > this.ColumnWidth)
-			{
-				this.ColumnWidth = b.TextX;
-				this.InvalidateAll(false);
-			}
+            var nickBrush = b.Foreground;
+            if (this.ColorizeNicknames && b.Source.NickHashCode != 0)
+            {
+                nickBrush = this.GetNickColor(b.Source.NickHashCode);
+            }
+            b.Nick = formatter.Format(b.NickString, null, this.ViewportWidth - b.NickX, nickBrush, this.Background,
+                TextWrapping.NoWrap).First();
+            b.TextX = b.NickX + b.Nick.WidthIncludingTrailingWhitespace;
 
-			if (this.UseTabularView)
-			{
-				b.TextX = this.ColumnWidth + SeparatorPadding * 2.0 + 1.0;
-				b.NickX = this.ColumnWidth - b.Nick.WidthIncludingTrailingWhitespace;
-			}
+            if (autoSize && b.TextX > this.ColumnWidth)
+            {
+                this.ColumnWidth = b.TextX;
+                this.InvalidateAll(false);
+            }
 
-			b.Text = formatter.Format(b.Source.Text, b.Source, this.ViewportWidth - b.TextX, b.Foreground,
-				this.Background, TextWrapping.Wrap).ToArray();
-			b.Height = b.Text.Sum((t) => t.Height);
-		}
+            if (this.UseTabularView)
+            {
+                b.TextX = this.ColumnWidth + SeparatorPadding * 2.0 + 1.0;
+                b.NickX = this.ColumnWidth - b.Nick.WidthIncludingTrailingWhitespace;
+            }
 
-		private void InvalidateAll(bool styleChanged)
-		{
-			var formatter = new ChatFormatter(this.Typeface, this.FontSize, this.Foreground, this.Palette);
-			_lineHeight = Math.Ceiling(this.FontSize * this.Typeface.FontFamily.LineSpacing);
+            b.Text = formatter.Format(b.Source.Text, b.Source, this.ViewportWidth - b.TextX, b.Foreground,
+                this.Background, TextWrapping.Wrap).ToArray();
 
-			if (styleChanged)
-			{
-				var offset = 0;
-				foreach (var b in _blocks)
-				{
-					b.CharStart = offset;
-					b.TimeString = this.FormatTime(b.Source.Time);
-					b.NickString = this.FormatNick(b.Source.Nick);
-					offset += b.TimeString.Length + b.NickString.Length + b.Source.Text.Length;
-					b.CharEnd = offset;
-				}
-			}
+            var imageMatches = Regex.Matches(b.Source.Text, @"(https?://[^\s]+\.(jpg|gif|png))");
+            if (imageMatches.Count > 0)
+            {
+                var bmpImg = new BitmapImage();
+                bmpImg.BeginInit();
+                bmpImg.UriSource = new Uri(imageMatches[0].Value, UriKind.Absolute);
+                bmpImg.EndInit();
+                b.Image = bmpImg;
 
-			this.StartProcessingText();
-		}
+                if (bmpImg.IsDownloading)
+                {
+                    bmpImg.DownloadCompleted += (e, arg) =>
+                    {
+                        b.ImageWidth = bmpImg.Width;
+                        b.ImageHeight = bmpImg.Height;
 
-		private void StartProcessingText()
-		{
-			_curBlock = _blocks.Last;
-			_curLine = 0;
-			if (!_isProcessingText)
-			{
-				_isProcessingText = true;
-				Application.Current.Dispatcher.BeginInvoke((Action)ProcessText, DispatcherPriority.ApplicationIdle, null);
-			}
-		}
+                        b.Height += b.ImageHeight;
 
-		private void ProcessText()
-		{
-			int count = 0;
-			while (_curBlock != null && count < TextProcessingBatchSize)
-			{
-				int oldLineCount = _curBlock.Value.Text != null ? _curBlock.Value.Text.Length : 0;
-				this.FormatOne(_curBlock.Value, false);
-				_curLine += _curBlock.Value.Text.Length;
-				int deltaLines = _curBlock.Value.Text.Length - oldLineCount;
-				_bufferLines += deltaLines;
-				if (_curLine < _scrollPos)
-				{
-					_scrollPos += deltaLines;
-				}
-				_curBlock = _curBlock.Previous;
-				count++;
-			}
+                        InvalidateAll(false);
+                    };
+                }
+                else
+                {
+                    b.ImageWidth = bmpImg.Width;
+                    b.ImageHeight = bmpImg.Height;
+                }
+            }
 
-			if (_curBlock == null)
-			{
-				_isProcessingText = false;
-			}
-			else
-			{
-				Application.Current.Dispatcher.BeginInvoke((Action)ProcessText, DispatcherPriority.ApplicationIdle, null);
-			}
+            b.Height = b.Text.Sum((t) => t.Height) + b.ImageHeight;
+        }
 
-			this.InvalidateScrollInfo();
-			this.InvalidateVisual();
-		}
+        private void InvalidateAll(bool styleChanged)
+        {
+            var formatter = new ChatFormatter(this.Typeface, this.FontSize, this.Foreground, this.Palette);
+            _lineHeight = Math.Ceiling(this.FontSize * this.Typeface.FontFamily.LineSpacing);
 
-		protected override void OnRender(DrawingContext dc)
-		{
-			base.OnRender(dc);
+            if (styleChanged)
+            {
+                var offset = 0;
+                foreach (var b in _blocks)
+                {
+                    b.CharStart = offset;
+                    b.TimeString = this.FormatTime(b.Source.Time);
+                    b.NickString = this.FormatNick(b.Source.Nick);
+                    offset += b.TimeString.Length + b.NickString.Length + b.Source.Text.Length;
+                    b.CharEnd = offset;
+                }
+            }
 
-			var visual = PresentationSource.FromVisual(this);
-			if (visual == null)
-			{
-				return;
-			}
-			var m = visual.CompositionTarget.TransformToDevice;
-			var scaledPen = new Pen(this.DividerBrush, 1 / m.M11);
-			double guidelineHeight = scaledPen.Thickness;
+            this.StartProcessingText();
+        }
 
-			double vPos = this.ActualHeight;
-			int curLine = 0;
-			_bottomBlock = null;
-			var guidelines = new GuidelineSet();
+        private void StartProcessingText()
+        {
+            _curBlock = _blocks.Last;
+            _curLine = 0;
+            if (!_isProcessingText)
+            {
+                _isProcessingText = true;
+                Application.Current.Dispatcher.BeginInvoke((Action)ProcessText, DispatcherPriority.ApplicationIdle, null);
+            }
+        }
 
-			dc.DrawRectangle(Brushes.Transparent, null, new Rect(new Size(this.ViewportWidth, this.ActualHeight)));
+        private void ProcessText()
+        {
+            int count = 0;
+            while (_curBlock != null && count < TextProcessingBatchSize)
+            {
+                int oldLineCount = 0;
+                if (_curBlock.Value.Text != null)
+                {
+                    oldLineCount = _curBlock.Value.Text.Length;
+                }
 
-			var node = _blocks.Last;
-			do
-			{
-				if (node == null)
-				{
-					break;
-				}
+                this.FormatOne(_curBlock.Value, false);
+                _curLine += _curBlock.Value.Text.Length;
+                int deltaLines = _curBlock.Value.Text.Length - oldLineCount;
 
-				var block = node.Value;
-				block.Y = double.NaN;
+                _bufferLines += deltaLines;
+                if (_curLine < _scrollPos)
+                {
+                    _scrollPos += deltaLines;
+                }
+                _curBlock = _curBlock.Previous;
+                count++;
+            }
 
-				bool drawAny = false;
-				if (block.Text == null || block.Text.Length < 1)
-				{
-					continue;
-				}
-				for (int j = block.Text.Length - 1; j >= 0; --j)
-				{
-					var line = block.Text[j];
-					if (curLine++ < _scrollPos)
-					{
-						continue;
-					}
-					vPos -= line.Height;
-					drawAny = true;
-				}
-				if (drawAny)
-				{
-					block.Y = vPos;
+            if (_curBlock == null)
+            {
+                _isProcessingText = false;
+            }
+            else
+            {
+                Application.Current.Dispatcher.BeginInvoke((Action)ProcessText, DispatcherPriority.ApplicationIdle, null);
+            }
 
-					if ((block.Source.Marker & ChatMarker.NewMarker) > 0)
-					{
-						var markerBrush = new LinearGradientBrush(this.NewMarkerColor,
-							this.NewMarkerTransparentColor, 90.0);
-						dc.DrawRectangle(markerBrush, null,
-							new Rect(new Point(0.0, block.Y), new Size(this.ViewportWidth, _lineHeight * 5)));
-					}
-					if ((block.Source.Marker & ChatMarker.OldMarker) > 0)
-					{
-						var markerBrush = new LinearGradientBrush(this.OldMarkerTransparentColor,
-							this.OldMarkerColor, 90.0);
-						dc.DrawRectangle(markerBrush, null,
-							new Rect(new Point(0.0, (block.Y + block.Height) - _lineHeight * 5),
-								new Size(this.ViewportWidth, _lineHeight * 5)));
-					}
+            this.InvalidateScrollInfo();
+            this.InvalidateVisual();
+        }
 
-					if (_bottomBlock == null)
-					{
-						_bottomBlock = node;
-					}
-					guidelines.GuidelinesY.Add(vPos + guidelineHeight);
-				}
-			}
-			while (node.Previous != null && vPos >= -_lineHeight * 5.0 && (node = node.Previous) != null);
+        protected override void OnRender(DrawingContext dc)
+        {
+            base.OnRender(dc);
 
-			dc.PushGuidelineSet(guidelines);
+            var visual = PresentationSource.FromVisual(this);
+            if (visual == null)
+            {
+                return;
+            }
+            var m = visual.CompositionTarget.TransformToDevice;
+            var scaledPen = new Pen(this.DividerBrush, 1 / m.M11);
+            double guidelineHeight = scaledPen.Thickness;
 
-			if (this.UseTabularView)
-			{
-				double lineX = this.ColumnWidth + SeparatorPadding;
-				dc.DrawLine(scaledPen, new Point(lineX, 0.0), new Point(lineX, this.ActualHeight));
-			}
+            double vPos = this.ActualHeight;
+            int curLine = 0;
+            _bottomBlock = null;
+            var guidelines = new GuidelineSet();
 
-			if (_blocks.Count < 1)
-			{
-				return;
-			}
+            dc.DrawRectangle(Brushes.Transparent, null, new Rect(new Size(this.ViewportWidth, this.ActualHeight)));
 
-			do
-			{
-				var block = node.Value;
-				if (double.IsNaN(block.Y))
-				{
-					continue;
-				}
+            var node = _blocks.Last;
+            do
+            {
+                if (node == null)
+                {
+                    break;
+                }
 
-				if ((block.Source.Marker & ChatMarker.Attention) > 0)
-				{
-					var markerBrush = new SolidColorBrush(this.AttentionColor);
-					dc.DrawRectangle(markerBrush, null,
-						new Rect(new Point(block.TextX, block.Y), new Size(this.ViewportWidth - block.TextX, block.Height)));
-				}
+                var block = node.Value;
+                block.Y = double.NaN;
 
-				block.Nick.Draw(dc, new Point(block.NickX, block.Y), InvertAxes.None);
-				if (block.Time != null)
-				{
-					block.Time.Draw(dc, new Point(0.0, block.Y), InvertAxes.None);
-				}
-				for (int k = 0; k < block.Text.Length; k++)
-				{
-					block.Text[k].Draw(dc, new Point(block.TextX, block.Y + k * _lineHeight), InvertAxes.None);
-				}
+                bool drawAny = false;
+                if (block.Text == null || block.Text.Length < 1)
+                {
+                    continue;
+                }
+                for (int j = block.Text.Length - 1; j >= 0; --j)
+                {
+                    var line = block.Text[j];
+                    if (curLine++ < _scrollPos)
+                    {
+                        continue;
+                    }
+                    vPos -= line.Height;
+                    drawAny = true;
+                }
+                if (drawAny)
+                {
+                    if (block.Image != null)
+                    {
+                        vPos -= block.Image.Height;
+                    }
 
-				if (this.IsSelecting)
-				{
-					this.DrawSelectionHighlight(dc, block);
-				}
-				if (node == _curSearchBlock)
-				{
-					this.DrawSearchHighlight(dc, node.Value);
-				}
-			}
-			while ((node = node.Next) != null);
-		}
+                    block.Y = vPos;
 
-		protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
-		{
-			if (sizeInfo.WidthChanged)
-			{
-				this.InvalidateAll(false);
-			}
-		}
-	}
+                    if ((block.Source.Marker & ChatMarker.NewMarker) > 0)
+                    {
+                        var markerBrush = new LinearGradientBrush(this.NewMarkerColor,
+                            this.NewMarkerTransparentColor, 90.0);
+                        dc.DrawRectangle(markerBrush, null,
+                            new Rect(new Point(0.0, block.Y), new Size(this.ViewportWidth, _lineHeight * 5)));
+                    }
+                    if ((block.Source.Marker & ChatMarker.OldMarker) > 0)
+                    {
+                        var markerBrush = new LinearGradientBrush(this.OldMarkerTransparentColor,
+                            this.OldMarkerColor, 90.0);
+                        dc.DrawRectangle(markerBrush, null,
+                            new Rect(new Point(0.0, (block.Y + block.Height) - _lineHeight * 5),
+                                new Size(this.ViewportWidth, _lineHeight * 5)));
+                    }
+
+                    if (_bottomBlock == null)
+                    {
+                        _bottomBlock = node;
+                    }
+
+                    guidelines.GuidelinesY.Add(vPos + guidelineHeight);
+                }
+            }
+            while (node.Previous != null && vPos >= -_lineHeight * 5.0 && (node = node.Previous) != null);
+
+            dc.PushGuidelineSet(guidelines);
+
+            if (this.UseTabularView)
+            {
+                double lineX = this.ColumnWidth + SeparatorPadding;
+                dc.DrawLine(scaledPen, new Point(lineX, 0.0), new Point(lineX, this.ActualHeight));
+            }
+
+            if (_blocks.Count < 1)
+            {
+                return;
+            }
+
+            do
+            {
+                var block = node.Value;
+                if (double.IsNaN(block.Y))
+                {
+                    continue;
+                }
+
+                if ((block.Source.Marker & ChatMarker.Attention) > 0)
+                {
+                    var markerBrush = new SolidColorBrush(this.AttentionColor);
+                    dc.DrawRectangle(markerBrush, null,
+                        new Rect(new Point(block.TextX, block.Y), new Size(this.ViewportWidth - block.TextX, block.Height)));
+                }
+
+                block.Nick.Draw(dc, new Point(block.NickX, block.Y), InvertAxes.None);
+                if (block.Time != null)
+                {
+                    block.Time.Draw(dc, new Point(0.0, block.Y), InvertAxes.None);
+                }
+
+                for (int k = 0; k < block.Text.Length; k++)
+                {
+                    block.Text[k].Draw(dc, new Point(block.TextX, block.Y + k * _lineHeight), InvertAxes.None);
+                }
+
+                if (block.Image != null)
+                {
+                    dc.DrawImage(block.Image, new Rect(block.TextX, block.Y + block.Text.Length * _lineHeight, block.ImageWidth, block.ImageHeight));
+                }
+
+                if (this.IsSelecting)
+                {
+                    this.DrawSelectionHighlight(dc, block);
+                }
+                if (node == _curSearchBlock)
+                {
+                    this.DrawSearchHighlight(dc, node.Value);
+                }
+            }
+            while ((node = node.Next) != null);
+        }
+
+        protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
+        {
+            if (sizeInfo.WidthChanged)
+            {
+                this.InvalidateAll(false);
+            }
+        }
+    }
 }
