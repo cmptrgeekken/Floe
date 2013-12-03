@@ -202,7 +202,8 @@ namespace Floe.UI
 			var node = _bottomBlock;
 			do
 			{
-				if (y >= node.Value.Y && y < node.Value.Y + node.Value.Height)
+                var blockHeight = node.Value.GetTotalHeight(_lineHeight);
+				if (y >= node.Value.Y && y < node.Value.Y + blockHeight)
 				{
 					return node.Value;
 				}
@@ -223,7 +224,8 @@ namespace Floe.UI
 			var node = _bottomBlock;
 			do
 			{
-				if (p.Y >= node.Value.Y && p.Y < node.Value.Y + node.Value.Height)
+                var blockHeight = node.Value.GetTotalHeight(_lineHeight);
+				if (p.Y >= node.Value.Y && p.Y < node.Value.Y + blockHeight)
 				{
 					break;
 				}

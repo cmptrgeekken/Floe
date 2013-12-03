@@ -39,7 +39,27 @@ namespace Floe.UI
             public double Y { get; set; }
             public double NickX { get; set; }
             public double TextX { get; set; }
-            public double Height { get; set; }
+
+            public double GetTotalHeight(double lineHeight)
+            {
+                return Text == null ? 0.0 : Text.Sum(t => t.Height);
+            }
+
+            public int GetTotalLines(double lineHeight, bool includeImages)
+            {
+                if (Text == null)
+                {
+                    return 0;
+                }
+
+                var lines = Text.Length;
+                if (includeImages && Image != null)
+                {
+                    lines += (int)((ImageHeight + ImageHeight % lineHeight) / lineHeight);
+                }
+
+                return lines;
+            }
         }
 
         private LinkedList<Block> _blocks = new LinkedList<Block>();
@@ -134,18 +154,13 @@ namespace Floe.UI
 
             _blocks.AddLast(b);
             this.FormatOne(b, this.AutoSizeColumn);
-            _bufferLines += b.Text.Length;
-
-            if (b.Image != null)
-            {
-                _bufferLines += (int)(b.ImageHeight / _lineHeight);
-            }
+            _bufferLines += b.GetTotalLines(_lineHeight, false);
 
             while (_blocks.Count > this.BufferLines)
             {
                 if (_blocks.First.Value.Text != null)
                 {
-                    _bufferLines -= _blocks.First.Value.Text.Length;
+                    _bufferLines -= _blocks.First.Value.GetTotalLines(_lineHeight, false);
                 }
                 if (_blocks.First == _curSearchBlock)
                 {
@@ -157,7 +172,7 @@ namespace Floe.UI
             this.InvalidateScrollInfo();
             if (!_isAutoScrolling || _isSelecting)
             {
-                _scrollPos += b.Text.Length;
+                _scrollPos += b.GetTotalLines(_lineHeight, false);
             }
             this.InvalidateVisual();
         }
@@ -195,35 +210,38 @@ namespace Floe.UI
             b.Text = formatter.Format(b.Source.Text, b.Source, this.ViewportWidth - b.TextX, b.Foreground,
                 this.Background, TextWrapping.Wrap).ToArray();
 
-            var imageMatches = Regex.Matches(b.Source.Text, @"(https?://[^\s]+\.(jpg|gif|png))");
+            var imageMatches = Regex.Matches(b.Source.Text, @"(https?://[^\s?]+\.(jpg|gif|png)(\?[^\s]+)?)");
             if (imageMatches.Count > 0)
             {
                 var bmpImg = new BitmapImage();
                 bmpImg.BeginInit();
                 bmpImg.UriSource = new Uri(imageMatches[0].Value, UriKind.Absolute);
                 bmpImg.EndInit();
-                b.Image = bmpImg;
 
                 if (bmpImg.IsDownloading)
                 {
                     bmpImg.DownloadCompleted += (e, arg) =>
                     {
-                        b.ImageWidth = bmpImg.Width;
-                        b.ImageHeight = bmpImg.Height;
-
-                        b.Height += b.ImageHeight;
-
-                        InvalidateAll(false);
+                        OnBitmapDownloadComplete(b, bmpImg);
                     };
                 }
                 else
                 {
-                    b.ImageWidth = bmpImg.Width;
-                    b.ImageHeight = bmpImg.Height;
+                    OnBitmapDownloadComplete(b, bmpImg);
                 }
             }
+        }
 
-            b.Height = b.Text.Sum((t) => t.Height) + b.ImageHeight;
+        private void OnBitmapDownloadComplete(Block block, BitmapImage bmpImg)
+        {
+            if (bmpImg.Height > 1)
+            {
+                block.Image = bmpImg;
+                block.ImageWidth = bmpImg.Width;
+                block.ImageHeight = bmpImg.Height;
+            }
+
+            InvalidateAll(false);
         }
 
         private void InvalidateAll(bool styleChanged)
@@ -263,15 +281,14 @@ namespace Floe.UI
             int count = 0;
             while (_curBlock != null && count < TextProcessingBatchSize)
             {
-                int oldLineCount = 0;
-                if (_curBlock.Value.Text != null)
-                {
-                    oldLineCount = _curBlock.Value.Text.Length;
-                }
+                int oldLineCount = _curBlock.Value.GetTotalLines(_lineHeight, false);
 
                 this.FormatOne(_curBlock.Value, false);
-                _curLine += _curBlock.Value.Text.Length;
-                int deltaLines = _curBlock.Value.Text.Length - oldLineCount;
+
+                int newLineCount = _curBlock.Value.GetTotalLines(_lineHeight, false);
+
+                _curLine += newLineCount;
+                int deltaLines = newLineCount - oldLineCount;
 
                 _bufferLines += deltaLines;
                 if (_curLine < _scrollPos)
@@ -331,6 +348,18 @@ namespace Floe.UI
                 {
                     continue;
                 }
+
+                var imageLineCount = block.GetTotalLines(_lineHeight, true) - block.Text.Length;
+                for (int j = imageLineCount - 1; j >= 0; j--)
+                {
+                    if (curLine++ < _scrollPos)
+                    {
+                        continue;
+                    }
+                    vPos -= _lineHeight;
+                    drawAny = true;
+                }
+
                 for (int j = block.Text.Length - 1; j >= 0; --j)
                 {
                     var line = block.Text[j];
@@ -341,13 +370,9 @@ namespace Floe.UI
                     vPos -= line.Height;
                     drawAny = true;
                 }
+                
                 if (drawAny)
                 {
-                    if (block.Image != null)
-                    {
-                        vPos -= block.Image.Height;
-                    }
-
                     block.Y = vPos;
 
                     if ((block.Source.Marker & ChatMarker.NewMarker) > 0)
@@ -359,10 +384,11 @@ namespace Floe.UI
                     }
                     if ((block.Source.Marker & ChatMarker.OldMarker) > 0)
                     {
+                        var blockHeight = block.GetTotalHeight(_lineHeight);
                         var markerBrush = new LinearGradientBrush(this.OldMarkerTransparentColor,
                             this.OldMarkerColor, 90.0);
                         dc.DrawRectangle(markerBrush, null,
-                            new Rect(new Point(0.0, (block.Y + block.Height) - _lineHeight * 5),
+                            new Rect(new Point(0.0, (block.Y + blockHeight) - _lineHeight * 5),
                                 new Size(this.ViewportWidth, _lineHeight * 5)));
                     }
 
@@ -399,9 +425,10 @@ namespace Floe.UI
 
                 if ((block.Source.Marker & ChatMarker.Attention) > 0)
                 {
+                    var blockHeight = block.GetTotalHeight(_lineHeight);
                     var markerBrush = new SolidColorBrush(this.AttentionColor);
                     dc.DrawRectangle(markerBrush, null,
-                        new Rect(new Point(block.TextX, block.Y), new Size(this.ViewportWidth - block.TextX, block.Height)));
+                        new Rect(new Point(block.TextX, block.Y), new Size(this.ViewportWidth - block.TextX, blockHeight)));
                 }
 
                 block.Nick.Draw(dc, new Point(block.NickX, block.Y), InvertAxes.None);
