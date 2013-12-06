@@ -135,6 +135,7 @@
     <Compile Include="Settings\NetworkSettingsControl.xaml.cs">
       <DependentUpon>NetworkSettingsControl.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Settings\PasswordBoxAssistant.cs" />
     <Compile Include="Settings\SoundSettingsControl.xaml.cs">
       <DependentUpon>SoundSettingsControl.xaml</DependentUpon>
     </Compile>
