@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
 			 xmlns:local="clr-namespace:Floe.UI"
+             xmlns:settings="clr-namespace:Floe.UI.Settings"
              mc:Ignorable="d" 
              d:DesignHeight="300" d:DesignWidth="384">
 	<UserControl.Resources>
@@ -60,13 +61,10 @@
 		<CheckBox Canvas.Left="165" Canvas.Top="100" Content="Connect On Startup" Height="16" Name="chkConnectOnStartup" IsChecked="{Binding ElementName=lstServers, Path=SelectedItem.ConnectOnStartup, Mode=TwoWay}"/>
 		<CheckBox Canvas.Left="165" Canvas.Top="122" Content="Auto Reconnect" Height="16" Name="chkAutoReconnect" IsChecked="{Binding ElementName=lstServers, Path=SelectedItem.AutoReconnect, Mode=TwoWay}"/>
 		<Label ToolTip="{StaticResource ttOnConnect}" Canvas.Left="166" Canvas.Top="143" Content="On Connect:" Height="28" Name="label4" />
-		<TextBox Canvas.Left="301" Canvas.Top="115" Height="23" Name="textBox1" Width="71">
-			<Binding ElementName="lstServers" Mode="TwoWay" NotifyOnSourceUpdated="True" Path="SelectedItem.Password">
-				<Binding.ValidationRules>
-					<ExceptionValidationRule />
-				</Binding.ValidationRules>
-			</Binding>
-		</TextBox>
+        <PasswordBox Canvas.Left="301" Canvas.Top="115" Height="23" Name="textBox1" Width="71" 
+                     settings:PasswordBoxAssistant.BindPassword="true" 
+                     settings:PasswordBoxAssistant.BoundPassword="{Binding ElementName=lstServers, Path=SelectedItem.Password, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+		</PasswordBox>
 		<TextBox ToolTip="{StaticResource ttOnConnect}" Canvas.Left="165" Canvas.Top="159" Height="98" Name="txtOnConnect" Width="207" Text="{Binding ElementName=lstServers, Path=SelectedItem.OnConnect}" AcceptsReturn="True" />
 		<Label Canvas.Left="301" Canvas.Top="100" Content="Password" Height="18" Name="label5" />
 		<TextBlock Canvas.Left="165" Canvas.Top="260" Height="40" Name="label6" Width="207" TextWrapping="Wrap">
