@@ -154,13 +154,13 @@ namespace Floe.UI
 
             _blocks.AddLast(b);
             this.FormatOne(b, this.AutoSizeColumn);
-            _bufferLines += b.GetTotalLines(_lineHeight, false);
+            _bufferLines += b.GetTotalLines(_lineHeight, true);
 
             while (_blocks.Count > this.BufferLines)
             {
                 if (_blocks.First.Value.Text != null)
                 {
-                    _bufferLines -= _blocks.First.Value.GetTotalLines(_lineHeight, false);
+                    _bufferLines -= _blocks.First.Value.GetTotalLines(_lineHeight, true);
                 }
                 if (_blocks.First == _curSearchBlock)
                 {
@@ -172,7 +172,7 @@ namespace Floe.UI
             this.InvalidateScrollInfo();
             if (!_isAutoScrolling || _isSelecting)
             {
-                _scrollPos += b.GetTotalLines(_lineHeight, false);
+                _scrollPos += b.GetTotalLines(_lineHeight, true);
             }
             this.InvalidateVisual();
         }
