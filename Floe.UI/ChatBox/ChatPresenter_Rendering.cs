@@ -236,9 +236,13 @@ namespace Floe.UI
         {
             if (bmpImg.Height > 1)
             {
+                var maxWidth = App.Settings.Current.Formatting.MaxInlineImageWidth;
+                var scaledWidth = bmpImg.Width > maxWidth ? maxWidth : bmpImg.Width;
+                var scaledHeight = bmpImg.Width > maxWidth ? (maxWidth / bmpImg.Width) * bmpImg.Height : bmpImg.Height;
+
                 block.Image = bmpImg;
-                block.ImageWidth = bmpImg.Width;
-                block.ImageHeight = bmpImg.Height;
+                block.ImageWidth = scaledWidth;
+                block.ImageHeight = scaledHeight;
             }
 
             InvalidateAll(false);
