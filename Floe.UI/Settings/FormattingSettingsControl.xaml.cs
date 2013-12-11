@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace Floe.UI.Settings
@@ -40,5 +42,13 @@ namespace Floe.UI.Settings
 		{
 			base.OnInitialized(e);
 		}
+
+        /// <summary>
+        /// Ensure that only numbers get input into this box. Probably not the most elegant solution, but it works.
+        /// </summary>
+        private void MaxImgWidth_PreviewTextInput(object sender, TextCompositionEventArgs e)
+        {
+            if (e.Text.ToCharArray().Any(c => !Char.IsDigit(c))) e.Handled = true;
+        }
 	}
 }

@@ -107,6 +107,13 @@ namespace Floe.Configuration
 			set { this["autoSizeColumn"] = value; this.OnPropertyChanged("AutoSizeColumn"); }
 		}
 
+        [ConfigurationProperty("maxInlineImageWidth", DefaultValue = 256)]
+        public int MaxInlineImageWidth
+        {
+            get { return (int)this["maxInlineImageWidth"]; }
+            set { this["maxInlineImageWidth"] = value; this.OnPropertyChanged("MaxInlineImageWidth"); }
+        }
+
 		public event PropertyChangedEventHandler PropertyChanged;
 
 		private void OnPropertyChanged(string name)
